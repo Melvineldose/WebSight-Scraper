@@ -1,0 +1,13 @@
+beautifulsoup4
+cssselect
+cssutils
+Flask
+Pillow
+PyJWT
+pymongo
+python-dotenv
+reportlab
+requests
+selenium
+urllib3
+webdriver-manager
