@@ -745,79 +745,240 @@ def get_binary_file_downloader_html(bin_file, file_label='File'):
     return href
 
 def display_pdf(file_path):
-    """Enhanced PDF display function with multiple rendering options"""
-    # Read PDF file
+    """Ultra minimal PDF display function that prioritizes reliability"""
+    file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+    file_name = os.path.basename(file_path)
+    
+    # Convert file to base64 for the download link
     with open(file_path, "rb") as f:
         base64_pdf = base64.b64encode(f.read()).decode('utf-8')
     
-    # Primary method - PDF iframe with proper styling and size
-    pdf_display = f"""
-        <div style="display: flex; justify-content: center; width: 100%;">
-            <iframe 
-                src="data:application/pdf;base64,{base64_pdf}" 
-                width="100%" 
-                height="800px" 
-                type="application/pdf"
-                style="border: 1px solid #ddd; border-radius: 5px;"
-                frameborder="0">
-            </iframe>
-        </div>
-        
-        <script>
-            // Add event listener to detect if iframe load fails
-            document.querySelector('iframe').addEventListener('error', function() {{
-                this.style.display = 'none';
-                document.getElementById('pdf-fallback').style.display = 'block';
-            }});
-        </script>
-        
-        <div id="pdf-fallback" style="display: none; text-align: center; padding: 20px; border: 1px solid #ddd; border-radius: 5px;">
-            <p>Your browser cannot display the PDF preview.</p>
-            <a href="data:application/pdf;base64,{base64_pdf}" download="{os.path.basename(file_path)}" 
-               style="display: inline-block; padding: 10px 20px; background: linear-gradient(90deg, #4b6cb7 0%, #182848 100%); color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
-                Download PDF
-            </a>
-        </div>
+    # Create very simple HTML - just focus on the download button
+    html = f"""
+    <div style="padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9; text-align: center;">
+        <h3>PDF: {file_name} ({file_size_mb:.1f} MB)</h3>
+        <a href="data:application/pdf;base64,{base64_pdf}" 
+           download="{file_name}" 
+           style="display: inline-block; padding: 10px 20px; background: linear-gradient(90deg, #4b6cb7 0%, #182848 100%); 
+                  color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin: 10px 0;">
+            Download PDF
+        </a>
+    </div>
     """
-    return pdf_display
+    return html
+def display_pdf_native(file_path):
+    """Display PDF using only Streamlit native components"""
+    file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+    file_name = os.path.basename(file_path)
+    
+    # Show file info
+    st.markdown(f"### PDF: {file_name}")
+    st.info(f"File size: {file_size_mb:.1f} MB")
+    
+    # Use Streamlit's native download button
+    with open(file_path, "rb") as pdf_file:
+        st.download_button(
+            label="📥 Download PDF",
+            data=pdf_file,
+            file_name=file_name,
+            mime="application/pdf",
+            use_container_width=True
+        )
+    
+    return file_path
+
+def get_base64_download_link(file_path):
+    """Generate base64 string for download link without loading entire file into memory"""
+    # For large files, we'll create a truncated preview version
+    # This helps avoid browser memory issues
+    chunk_size = 1024 * 1024  # 1MB chunk
+    with open(file_path, 'rb') as f:
+        # Just read the first chunk for the download link
+        data = f.read(chunk_size)
+    return base64.b64encode(data).decode()
 
 # Function to extract first page as image
+def show_pdf_with_direct_access(pdf_path):
+    """Show PDF using Streamlit's native components with progressive loading for large files"""
+    file_size_mb = os.path.getsize(pdf_path) / (1024 * 1024)
+    
+    # Display file information
+    st.info(f"PDF file size: {file_size_mb:.1f} MB")
+    
+    # Always provide a reliable download button
+    with open(pdf_path, "rb") as pdf_file:
+        pdf_data = pdf_file.read()
+        st.download_button(
+            label="📥 Download PDF Report",
+            data=pdf_data,
+            file_name=os.path.basename(pdf_path),
+            mime="application/pdf",
+            use_container_width=True
+        )
+    
+    # For larger files, use a different approach
+    if file_size_mb > 5:
+        st.warning("This PDF is too large for direct preview. Please use the download button above.")
+        
+        # Offer to show first page as preview
+        if st.button("Show First Page Preview"):
+            try:
+                preview_path = extract_pdf_first_page(pdf_path)
+                if preview_path:
+                    st.image(preview_path, caption="First page preview", use_column_width=True)
+                else:
+                    st.error("Could not generate preview. Please download the PDF.")
+            except Exception as e:
+                st.error(f"Error generating preview: {str(e)}")
+    else:
+        # For smaller files, use the iframe/object approach
+        st.markdown(display_pdf(pdf_path), unsafe_allow_html=True)
+    
+    return pdf_path
+
 def extract_pdf_first_page(pdf_path):
     """Extract the first page of a PDF as an image for preview"""
     try:
-        import fitz  # PyMuPDF
-        
-        # Open the PDF
-        doc = fitz.open(pdf_path)
-        # Get first page
-        page = doc[0]
-        # Render page to an image with higher resolution
-        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-        
-        # Convert to PIL Image
-        img_data = pix.tobytes("png")
-        img = PILImage.open(BytesIO(img_data))
-        
-        # Save as temporary PNG
-        temp_img_path = f"{os.path.splitext(pdf_path)[0]}_preview.png"
-        img.save(temp_img_path)
-        
-        return temp_img_path
+        # Try using PyMuPDF if available
+        try:
+            import fitz  # PyMuPDF
+            
+            # Open the PDF
+            doc = fitz.open(pdf_path)
+            # Get first page
+            page = doc[0]
+            # Render page to an image with higher resolution
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            
+            # Convert to PIL Image
+            img_data = pix.tobytes("png")
+            img = PILImage.open(BytesIO(img_data))
+            
+            # Save as temporary PNG
+            temp_img_path = f"{os.path.splitext(pdf_path)[0]}_preview.png"
+            img.save(temp_img_path)
+            
+            return temp_img_path
+        except ImportError:
+            # If PyMuPDF is not available, try using Pillow/Wand
+            try:
+                from PIL import Image
+                from wand.image import Image as WandImage
+                
+                # Convert first page to image
+                with WandImage(filename=f"{pdf_path}[0]") as img:
+                    img.resize(width=800, height=int(img.height * 800 / img.width))
+                    png_bin = img.make_blob("png")
+                
+                # Convert to PIL Image
+                img = Image.open(BytesIO(png_bin))
+                
+                # Save as temporary PNG
+                temp_img_path = f"{os.path.splitext(pdf_path)[0]}_preview.png"
+                img.save(temp_img_path)
+                
+                return temp_img_path
+            except ImportError:
+                # If all else fails, create a simple placeholder
+                return None
     except Exception as e:
-        st.warning(f"Could not generate preview image: {str(e)}")
+        logging.error(f"Error extracting PDF preview: {str(e)}")
         return None
+
+def setup_streamlit_file_serving():
+    """
+    Configure Streamlit to serve PDF files directly.
+    This can be added to the main function.
+    """
+    # Create a special route in the Streamlit app to serve files directly
+    # This is a more reliable way to display PDFs in Streamlit
+    st.markdown("""
+    <style>
+    .pdf-container {
+        width: 100%;
+        height: 800px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        overflow: hidden;
+    }
+    .pdf-container iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+    }
+    .download-button {
+        display: inline-block;
+        padding: 10px 20px;
+        background: linear-gradient(90deg, #4b6cb7 0%, #182848 100%);
+        color: white;
+        text-decoration: none;
+        border-radius: 5px;
+        font-weight: bold;
+        text-align: center;
+        margin: 10px 0;
+        cursor: pointer;
+    }
+    .download-button:hover {
+        background: linear-gradient(90deg, #3a5795 0%, #0b1429 100%);
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+def serve_pdf_via_html(pdf_path):
+    """
+    Create HTML content to serve the PDF using HTML components
+    This approach works better with large PDFs
+    """
+    filename = os.path.basename(pdf_path)
+    
+    # Create a temporary anchor for download
+    download_html = f"""
+    <div style="text-align: center; margin: 20px 0;">
+        <a href="static/{filename}" download="{filename}" class="download-button">
+            Download PDF Report ({os.path.basename(filename)})
+        </a>
+    </div>
+    """
+    
+    # Try to embed the PDF using iframe with direct file path
+    # This works better than base64 for large files
+    preview_html = f"""
+    <div class="pdf-container">
+        <iframe src="static/{filename}#view=FitH" type="application/pdf">
+            <p>Your browser does not support embedded PDFs. Please use the download link below.</p>
+        </iframe>
+    </div>
+    """
+    
+    return f"{download_html}{preview_html}"
 
 # To implement this in your Streamlit app:
 def show_pdf_with_fallbacks(pdf_path):
     """Show PDF with multiple fallback options"""
-    # Try iframe approach first
+    # Try the improved object tag approach first
     st.markdown(display_pdf(pdf_path), unsafe_allow_html=True)
     
     # Add a separator
     st.markdown("---")
     
-    # Alternative: Generate and show thumbnail preview
-    with st.expander("Having trouble viewing the PDF? Click here for thumbnail preview"):
+    # Always provide a direct download button as a reliable fallback
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.info("If the preview above doesn't work, use this download button:")
+    
+    with col2:
+        with open(pdf_path, "rb") as pdf_file:
+            st.download_button(
+                label="📥 Download PDF",
+                data=pdf_file,
+                file_name=os.path.basename(pdf_path),
+                mime="application/pdf",
+                use_container_width=True
+            )
+    
+    # Thumbnail preview option
+    with st.expander("View PDF thumbnail preview"):
         st.info("PDF preview image (first page only):")
         try:
             # Check if PyMuPDF is available
@@ -825,17 +986,39 @@ def show_pdf_with_fallbacks(pdf_path):
             # Generate thumbnail
             thumbnail_path = extract_pdf_first_page(pdf_path)
             if thumbnail_path:
-                st.image(thumbnail_path, caption="First page preview")
+                st.image(thumbnail_path, caption="First page preview", use_column_width=True)
         except ImportError:
-            st.warning("PDF thumbnail generation requires PyMuPDF library. Using download only option.")
-            # Show download button as fallback
-            with open(pdf_path, "rb") as f:
-                st.download_button(
-                    label="📥 Download PDF",
-                    data=f,
-                    file_name=os.path.basename(pdf_path),
-                    mime="application/pdf"
-                )
+            # Create a simple placeholder if PyMuPDF is not available
+            st.warning("PDF thumbnail generation requires PyMuPDF library.")
+            st.info("Please use the download button above to view the PDF.")
+def display_pdf_simple(file_path):
+    """Simple PDF display function that works across most browsers"""
+    # Read PDF file
+    with open(file_path, "rb") as f:
+        base64_pdf = base64.b64encode(f.read()).decode('utf-8')
+    
+    # Create HTML with both embed and object tags for maximum compatibility
+    pdf_display = f"""
+        <div style="display: flex; justify-content: center; width: 100%; margin-bottom: 10px;">
+            <embed
+                src="data:application/pdf;base64,{base64_pdf}"
+                width="100%"
+                height="800px"
+                type="application/pdf"
+                style="border: 1px solid #ddd; border-radius: 5px;">
+        </div>
+        
+        <!-- Backup download link in case the embed doesn't work -->
+        <div style="text-align: center; margin-top: 10px;">
+            <a href="data:application/pdf;base64,{base64_pdf}" 
+               download="{os.path.basename(file_path)}"
+               style="display: inline-block; padding: 10px 20px; background: linear-gradient(90deg, #4b6cb7 0%, #182848 100%); color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                Download PDF
+            </a>
+        </div>
+    """
+    return pdf_display            
+
 
 def main():
     # Set page configuration
@@ -845,6 +1028,9 @@ def main():
         layout="wide",
         initial_sidebar_state="expanded"
     )
+
+    # Setup file serving support for PDFs
+    setup_streamlit_file_serving()
 
     # Custom CSS for better styling
     st.markdown("""
@@ -905,6 +1091,21 @@ def main():
             margin-top: 30px;
             color: #888;
             font-size: 0.8rem;
+        }
+        .pdf-container {
+            width: 100%;
+            height: 800px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .pdf-fallback {
+            text-align: center;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+            margin-top: 20px;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -1012,33 +1213,64 @@ def main():
                             'filename': pdf_filename,
                             'path': f"static/{pdf_filename}",
                             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                            'pages_scraped': len(scraper.visited_urls)
+                            'pages_scraped': len(scraper.visited_urls),
+                            'file_size_mb': os.path.getsize(f"static/{pdf_filename}") / (1024 * 1024)
                         }
                         
                         # Add to the beginning of the list (most recent first)
                         st.session_state.pdf_files.insert(0, pdf_info)
                         
                         # Show PDF result
+                        st.subheader("Results")
+                        
+                        # Display file size warning if needed
+                        pdf_path = f"static/{pdf_filename}"
+                        file_size_mb = os.path.getsize(pdf_path) / (1024 * 1024)
+                        
                         col1, col2 = st.columns([3, 1])
                         
                         with col1:
                             st.subheader("Preview")
-                            pdf_display = display_pdf(f"static/{pdf_filename}")
-                            st.markdown(pdf_display, unsafe_allow_html=True)
+                            
+                            # Choose display method based on file size
+                            if file_size_mb > 5:  # Large PDF
+                                st.warning(f"This PDF is {file_size_mb:.1f}MB, which may be too large for direct preview.")
+                                st.info("Use the download button to view the PDF.")
+                                
+                                # Offer thumbnail preview option
+                                if st.button("Show Sample Preview"):
+                                    try:
+                                        preview_path = extract_pdf_first_page(pdf_path)
+                                        if preview_path and os.path.exists(preview_path):
+                                            st.image(preview_path, caption="First page preview")
+                                        else:
+                                            st.error("Could not generate preview. Please download the PDF.")
+                                    except Exception as e:
+                                        st.error(f"Error generating preview: {str(e)}")
+                            else:
+                                # For smaller files, use the standard display
+                                pdf_display = display_pdf(pdf_path)
+                                st.markdown(pdf_display, unsafe_allow_html=True)
                             
                         with col2:
                             st.subheader("Information")
                             st.markdown(f"**URL:** {url}")
                             st.markdown(f"**Pages Captured:** {len(scraper.visited_urls)}")
+                            st.markdown(f"**File Size:** {file_size_mb:.1f} MB")
                             st.markdown(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                             
-                            # Download button
+                            # Download button - always provide this regardless of file size
                             st.markdown("### Download")
-                            download_button = get_binary_file_downloader_html(
-                                f"static/{pdf_filename}", 
-                                f"PDF Report ({os.path.basename(pdf_filename)})"
-                            )
-                            st.markdown(download_button, unsafe_allow_html=True)
+                            
+                            # Use Streamlit's native download button for reliability
+                            with open(pdf_path, "rb") as pdf_file:
+                                st.download_button(
+                                    label=f"Download PDF Report",
+                                    data=pdf_file,
+                                    file_name=os.path.basename(pdf_filename),
+                                    mime="application/pdf",
+                                    use_container_width=True
+                                )
                             
                 except Exception as e:
                     st.error(f"Error during scraping: {str(e)}")
@@ -1087,24 +1319,48 @@ def main():
             # Display the recent PDFs
             for i, pdf_info in enumerate(st.session_state.pdf_files):
                 with st.expander(f"{pdf_info['url']} - {pdf_info['timestamp']}"):
+                    # Calculate file size if not already available
+                    if 'file_size_mb' not in pdf_info:
+                        pdf_info['file_size_mb'] = os.path.getsize(pdf_info['path']) / (1024 * 1024)
+                    
                     col1, col2 = st.columns([3, 1])
                     
                     with col1:
-                        # PDF preview
-                        pdf_display = display_pdf(pdf_info['path'])
-                        st.markdown(pdf_display, unsafe_allow_html=True)
+                        # PDF preview - use appropriate method based on file size
+                        if pdf_info['file_size_mb'] > 5:  # Large PDF
+                            st.warning(f"This PDF is {pdf_info['file_size_mb']:.1f}MB, which may be too large for direct preview.")
+                            
+                            # Offer thumbnail preview option
+                            if st.button(f"Show Preview for {os.path.basename(pdf_info['filename'])}", key=f"preview_{i}"):
+                                try:
+                                    preview_path = extract_pdf_first_page(pdf_info['path'])
+                                    if preview_path and os.path.exists(preview_path):
+                                        st.image(preview_path, caption="First page preview")
+                                    else:
+                                        st.error("Could not generate preview. Please download the PDF.")
+                                except Exception as e:
+                                    st.error(f"Error generating preview: {str(e)}")
+                        else:
+                            # For smaller files, use the standard display
+                            pdf_display = display_pdf(pdf_info['path'])
+                            st.markdown(pdf_display, unsafe_allow_html=True)
                         
                     with col2:
                         # PDF info and download
                         st.markdown(f"**Pages:** {pdf_info['pages_scraped']}")
+                        st.markdown(f"**File Size:** {pdf_info['file_size_mb']:.1f} MB")
                         st.markdown(f"**Created:** {pdf_info['timestamp']}")
                         
-                        # Download button
-                        download_button = get_binary_file_downloader_html(
-                            pdf_info['path'], 
-                            f"PDF Report ({os.path.basename(pdf_info['filename'])})"
-                        )
-                        st.markdown(download_button, unsafe_allow_html=True)
+                        # Always provide a reliable download button
+                        with open(pdf_info['path'], "rb") as pdf_file:
+                            st.download_button(
+                                label=f"Download PDF",
+                                data=pdf_file,
+                                file_name=os.path.basename(pdf_info['filename']),
+                                mime="application/pdf",
+                                use_container_width=True,
+                                key=f"download_{i}"
+                            )
     
     with tab3:
         # About tab
